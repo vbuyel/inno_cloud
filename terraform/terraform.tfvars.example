@@ -1,0 +1,12 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is git-ignored.
+project_id = "your-project-id"
+region     = "us-central1"
+env        = "dev"
+owner      = "your-handle"
+
+bq_location           = "US"
+bronze_retention_days = 30
+
+airflow_impersonators = [
+  "user:you@example.com",
+]
