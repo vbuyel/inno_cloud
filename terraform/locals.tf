@@ -2,14 +2,14 @@ locals {
   name = "${var.name_prefix}-${var.env}"
 
   common_labels = {
-    env = var.env
-    owner = var.owner
-    project = "weather-pipeline"
+    env        = var.env
+    owner      = var.owner
+    project    = "weather-pipeline"
     managed_by = "terraform"
   }
 
   # Bucket names are global, so the project ID is included to avoid collisions.
-  data_bucket_name = "${var.project_id}-${local.name}-data"
+  data_bucket_name   = "${var.project_id}-${local.name}-data"
   source_bucket_name = "${var.project_id}-${local.name}-fn-src"
 
   bronze_prefix = "bronze/weather/realtime/"
