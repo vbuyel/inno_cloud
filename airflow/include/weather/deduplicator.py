@@ -22,10 +22,14 @@ class RecordDeduplicator:
     def deduplicate(self, records: Iterable[SilverRecord]) -> DedupResult:
         """Remove duplicates, keeping the record from the latest source file.
 
-        Input:   records - validated records (any order).
-        Purpose: tomorrow.io may return the same observation in several calls;
-                 gold must contain each (location_name, event_time) once.
-        Output:  DedupResult(unique sorted by key, dropped duplicates).
+        The tomorrow.io API may return the same observation in several calls; gold must contain each
+        (location_name, event_time) once.
+
+        Args:
+            records: Validated records (any order).
+
+        Returns:
+            DedupResult: DedupResult(unique sorted by key, dropped duplicates).
         """
         kept: dict[tuple, SilverRecord] = {}
         duplicates: list[SilverRecord] = []

@@ -12,11 +12,23 @@ class FakeBlob:
     """Records upload arguments; can simulate an existing object."""
 
     def __init__(self, exists: bool) -> None:
-        """Input: exists - simulate precondition failure. Output: None."""
+        """Create the fake blob.
+
+        Args:
+            exists: If True, uploads fail as if the object already exists.
+        """
         self.exists, self.uploads = exists, []
 
     def upload_from_string(self, data, **kwargs):
-        """Input: data and upload options. Output: None or raises PreconditionFailed."""
+        """Record an upload or simulate an existing object.
+
+        Args:
+            data: Uploaded content.
+            **kwargs: Upload options (content_type, if_generation_match).
+
+        Raises:
+            PreconditionFailed: If the blob was created with ``exists=True``.
+        """
         if self.exists:
             raise PreconditionFailed("exists")
         self.uploads.append((data, kwargs))
@@ -26,16 +38,34 @@ class FakeClient:
     """Minimal stand-in for storage.Client().bucket(...).blob(...)."""
 
     def __init__(self, blob: FakeBlob) -> None:
-        """Input: blob returned for any name. Output: None."""
+        """Create the fake client.
+
+        Args:
+            blob: Blob returned for any object name.
+        """
         self.blob_obj, self.bucket_name = blob, None
 
     def bucket(self, name):
-        """Input: bucket name. Output: self (acts as bucket too)."""
+        """Select a bucket.
+
+        Args:
+            name: Bucket name.
+
+        Returns:
+            FakeClient: The client itself, which also acts as the bucket.
+        """
         self.bucket_name = name
         return self
 
     def blob(self, name):
-        """Input: object name. Output: the prepared FakeBlob."""
+        """Return a blob handle.
+
+        Args:
+            name: Object name (ignored).
+
+        Returns:
+            FakeBlob: The prepared FakeBlob.
+        """
         return self.blob_obj
 
 

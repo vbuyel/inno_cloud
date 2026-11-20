@@ -13,7 +13,11 @@ DAGS_DIR = Path(__file__).resolve().parents[2] / "airflow" / "dags"
 
 @pytest.fixture(scope="module")
 def dagbag():
-    """Input: none. Purpose: parse all project DAGs once. Output: DagBag."""
+    """Parse all project DAGs once.
+
+    Returns:
+        DagBag: All project DAGs parsed from airflow/dags.
+    """
     from airflow.models import DagBag
 
     return DagBag(dag_folder=str(DAGS_DIR))  # Airflow 3: examples are not loaded by DagBag

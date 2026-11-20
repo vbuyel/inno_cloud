@@ -9,7 +9,15 @@ from weather_ingest.sources import TomorrowIoClient
 
 
 def make_response(status: int, body: bytes = b"{}") -> requests.Response:
-    """Input: status and body. Purpose: real Response object without network. Output: Response."""
+    """Build a real requests.Response without network access.
+
+    Args:
+        status: HTTP status code.
+        body: Response body.
+
+    Returns:
+        requests.Response: A prepared requests.Response.
+    """
     response = requests.Response()
     response.status_code, response._content = status, body
     response.url = "https://api.tomorrow.io/v4/weather/realtime?apikey=SECRET"
@@ -20,11 +28,26 @@ class FakeSession:
     """Records the request and returns a prepared response or raises."""
 
     def __init__(self, result) -> None:
-        """Input: Response or exception. Output: None."""
+        """Create the fake session.
+
+        Args:
+            result: Response to return or exception to raise.
+        """
         self.result, self.calls = result, []
 
     def get(self, url, **kwargs):
-        """Input: requests.get arguments. Output: prepared response or raises."""
+        """Record the call and return the prepared result.
+
+        Args:
+            url: Requested URL.
+            **kwargs: requests.get options.
+
+        Returns:
+            requests.Response: The prepared response.
+
+        Raises:
+            Exception: The prepared exception, if one was configured.
+        """
         self.calls.append((url, kwargs))
         if isinstance(self.result, Exception):
             raise self.result

@@ -24,9 +24,13 @@ logging.basicConfig(level=logging.INFO)
 def ingest(request):  # noqa: ARG001 - request body is not used
     """HTTP entry point called by Cloud Scheduler.
 
-    Input:   request - flask.Request (body is ignored).
-    Purpose: load config and run ingestion for all configured locations.
-    Output:  tuple (JSON report, HTTP status from IngestionReport, headers).
+    Load config and run ingestion for all configured locations.
+
+    Args:
+        request: The incoming flask.Request (body is ignored).
+
+    Returns:
+        tuple[str, int, dict[str, str]]: JSON report, HTTP status code and response headers.
     """
     config = IngestConfig.from_env()
     report = build_service(config).run(config.locations)

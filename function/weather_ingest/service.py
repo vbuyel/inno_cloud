@@ -22,9 +22,10 @@ logger = logging.getLogger(__name__)
 def utc_now() -> datetime:
     """Return the current time.
 
-    Input:   none.
-    Purpose: default clock for the service (replaceable in tests).
-    Output:  timezone-aware datetime in UTC.
+    Default clock for the service (replaceable in tests).
+
+    Returns:
+        datetime: Timezone-aware datetime in UTC.
     """
     return datetime.now(timezone.utc)
 
@@ -41,12 +42,14 @@ class WeatherIngestionService:
     ) -> None:
         """Wire the service with its dependencies.
 
-        Input:   source - weather provider; storage - raw storage;
-                 path_builder - object name convention; clock - returns the
-                 current UTC time (injectable for tests).
-        Purpose: dependency injection: any part can be replaced (another API,
-                 another storage) without touching the orchestration logic.
-        Output:  None.
+        Dependency injection: any part can be replaced (another API, another storage) without
+        touching the orchestration logic.
+
+        Args:
+            source: Weather provider.
+            storage: Raw storage.
+            path_builder: Object name convention.
+            clock: Returns the current UTC time (injectable for tests).
         """
         self._source = source
         self._storage = storage
@@ -56,9 +59,16 @@ class WeatherIngestionService:
     def ingest_location(self, location: str) -> str:
         """Run fetch -> build path -> store for a single location.
 
-        Input:   location - one configured location.
-        Purpose: isolate one unit of work so failures do not affect others.
-        Output:  URI of the stored object; raises IngestionError subclasses.
+        Isolate one unit of work so failures do not affect others.
+
+        Args:
+            location: One configured location.
+
+        Returns:
+            str: URI of the stored object.
+
+        Raises:
+            IngestionError: If fetching or storing fails for this location.
         """
         fetched_at = self._clock()
         payload = self._source.fetch_realtime(location)
@@ -68,9 +78,13 @@ class WeatherIngestionService:
     def run(self, locations: Iterable[str]) -> IngestionReport:
         """Ingest all locations and collect a report.
 
-        Input:   locations - locations to process.
-        Purpose: process every location independently and log the outcome.
-        Output:  IngestionReport with stored URIs and per-location errors.
+        Process every location independently and log the outcome.
+
+        Args:
+            locations: Locations to process.
+
+        Returns:
+            IngestionReport: Stored URIs and per-location errors.
         """
         report = IngestionReport()
         for location in locations:
@@ -80,9 +94,11 @@ class WeatherIngestionService:
     def _ingest_into_report(self, location: str, report: IngestionReport) -> None:
         """Ingest one location and record the outcome instead of raising.
 
-        Input:   location - one location; report - report to update.
-        Purpose: one bad location must not stop the rest of the run.
-        Output:  None (report is updated in place).
+        One bad location must not stop the rest of the run.
+
+        Args:
+            location: One location.
+            report: Report to update.
         """
         try:
             uri = self.ingest_location(location)

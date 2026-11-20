@@ -13,9 +13,13 @@ from include.weather.schema import WEATHER_METRICS
 def is_number(value: Any) -> bool:
     """Check that a JSON value is a real finite number.
 
-    Input:   value - any parsed JSON value.
-    Purpose: reject strings, booleans (bool is an int subclass), NaN and inf.
-    Output:  True if value is int/float, not bool, and finite.
+    Reject strings, booleans (bool is an int subclass), NaN and inf.
+
+    Args:
+        value: Any parsed JSON value.
+
+    Returns:
+        bool: True if value is int/float, not bool, and finite.
     """
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
@@ -23,9 +27,13 @@ def is_number(value: Any) -> bool:
 def parse_event_time(value: Any) -> datetime | None:
     """Parse data.time into an aware datetime.
 
-    Input:   value - e.g. "2026-11-20T14:10:00Z".
-    Purpose: event_time is REQUIRED in gold, so it must be a valid timestamp.
-    Output:  timezone-aware datetime, or None if missing/invalid/naive.
+    Event_time is REQUIRED in gold, so it must be a valid timestamp.
+
+    Args:
+        value: E.g. "2026-11-20T14:10:00Z".
+
+    Returns:
+        datetime | None: Timezone-aware datetime, or None if missing/invalid/naive.
     """
     if not isinstance(value, str) or not value.strip():
         return None
@@ -58,18 +66,23 @@ class PayloadValidator:
     def __init__(self, rules: ValidationRules | None = None) -> None:
         """Create a validator.
 
-        Input:   rules - ValidationRules; defaults to the project rules.
-        Purpose: keep thresholds configurable and out of the checking code.
-        Output:  None.
+        Keep thresholds configurable and out of the checking code.
+
+        Args:
+            rules: ValidationRules; defaults to the project rules.
         """
         self._rules = rules or ValidationRules()
 
     def validate(self, payload: Any) -> list[str]:
         """Run all checks against one payload.
 
-        Input:   payload - parsed JSON document from a bronze file.
-        Purpose: decide whether the payload can become a silver record.
-        Output:  list of human-readable errors; empty list means valid.
+        Decide whether the payload can become a silver record.
+
+        Args:
+            payload: Parsed JSON document from a bronze file.
+
+        Returns:
+            list[str]: Human-readable errors; an empty list means the payload is valid.
         """
         errors = self._check_structure(payload)
         if errors:
@@ -82,9 +95,13 @@ class PayloadValidator:
     def _check_structure(payload: Any) -> list[str]:
         """Check the JSON skeleton.
 
-        Input:   payload - parsed JSON document.
-        Purpose: data, location and data.values must exist and be objects.
-        Output:  list of structural errors.
+        Data, location and data.values must exist and be objects.
+
+        Args:
+            payload: Parsed JSON document.
+
+        Returns:
+            list[str]: Structural errors.
         """
         if not isinstance(payload, dict):
             return ["payload is not a JSON object"]
@@ -101,9 +118,13 @@ class PayloadValidator:
     def _check_mandatory(payload: dict) -> list[str]:
         """Check fields that are REQUIRED in the gold table.
 
-        Input:   payload - structurally valid payload.
-        Purpose: event_time and location_name cannot be NULL in BigQuery.
-        Output:  list of errors for missing/invalid mandatory fields.
+        Event_time and location_name cannot be NULL in BigQuery.
+
+        Args:
+            payload: Structurally valid payload.
+
+        Returns:
+            list[str]: Errors for missing or invalid mandatory fields.
         """
         errors = []
         if parse_event_time(payload["data"].get("time")) is None:
@@ -116,9 +137,13 @@ class PayloadValidator:
     def _check_metrics(self, values: dict) -> list[str]:
         """Check metric types and ranges (only for metrics that are present).
 
-        Input:   values - data.values object.
-        Purpose: enforce "numeric if present" and "within range if present".
-        Output:  list of errors, e.g. "humidity=120 is outside [0, 100]".
+        Enforce "numeric if present" and "within range if present".
+
+        Args:
+            values: Data.values object.
+
+        Returns:
+            list[str]: Range/type errors, e.g. "humidity=120 is outside [0, 100]".
         """
         errors = []
         for name in self._rules.numeric_fields:

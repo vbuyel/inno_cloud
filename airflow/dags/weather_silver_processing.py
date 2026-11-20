@@ -35,9 +35,10 @@ logger = logging.getLogger(__name__)
 def _bronze_layout() -> BronzeLayout:
     """Build the bronze layout from Airflow Variables.
 
-    Input:   none (Variable weather_bronze_prefix).
-    Purpose: single source of the bronze path convention for all tasks.
-    Output:  BronzeLayout.
+    Single source of the bronze path convention for all tasks. Variable weather_bronze_prefix.
+
+    Returns:
+        BronzeLayout: Layout configured with the bronze prefix Variable.
     """
     return BronzeLayout(Variable.get("weather_bronze_prefix"))
 
@@ -45,9 +46,15 @@ def _bronze_layout() -> BronzeLayout:
 def _download(hook: GCSHook, source: SourceSelection, objects: list[str]) -> list[BronzeFile]:
     """Download bronze files.
 
-    Input:   hook - GCS hook; source - bucket info; objects - object names.
-    Purpose: keep GCS I/O out of the pure transformation code.
-    Output:  list of BronzeFile with raw bytes.
+    Keep GCS I/O out of the pure transformation code.
+
+    Args:
+        hook: GCS hook.
+        source: Bucket info.
+        objects: Object names.
+
+    Returns:
+        list[BronzeFile]: Downloaded files with their raw bytes.
     """
     return [BronzeFile(source.bucket, name, hook.download(source.bucket, name)) for name in objects]
 
@@ -55,9 +62,14 @@ def _download(hook: GCSHook, source: SourceSelection, objects: list[str]) -> lis
 def _upload(hook: GCSHook, outputs: dict[str, str]) -> list[str]:
     """Upload silver CSV files to the data bucket.
 
-    Input:   hook - GCS hook; outputs - {object_name: csv_text}.
-    Purpose: persist the silver layer.
-    Output:  list of uploaded object names.
+    Persist the silver layer.
+
+    Args:
+        hook: GCS hook.
+        outputs: {object_name: csv_text}.
+
+    Returns:
+        list[str]: Names of the uploaded silver objects.
     """
     bucket = Variable.get("weather_data_bucket")
     for object_name, csv_text in outputs.items():
@@ -69,9 +81,16 @@ def _upload(hook: GCSHook, outputs: dict[str, str]) -> list[str]:
 def _transform(files: list[BronzeFile]) -> TransformResult:
     """Run the pure bronze -> silver transformation.
 
-    Input:   files - downloaded bronze files.
-    Purpose: translate "no valid records" into a non-retryable DAG failure.
-    Output:  TransformResult; raises AirflowFailException if nothing is valid.
+    Translate "no valid records" into a non-retryable DAG failure.
+
+    Args:
+        files: Downloaded bronze files.
+
+    Returns:
+        TransformResult: Silver CSV texts and run counters.
+
+    Raises:
+        AirflowFailException: If nothing is valid.
     """
     transformer = SilverTransformer(_bronze_layout(), SilverLayout(Variable.get("weather_silver_prefix")))
     try:
@@ -84,10 +103,15 @@ def _transform(files: list[BronzeFile]) -> TransformResult:
 def resolve_source(params: dict, dag_run=None) -> dict:
     """Decide which bronze files to process.
 
-    Input:   params.source_path (optional); dag_run (run time reference).
-    Purpose: default to the previous UTC hour relative to the run time,
-             so retries of the same run read the same hour.
-    Output:  SourceSelection as dict {bucket, prefix, match_glob}.
+    Default to the previous UTC hour relative to the run time, so retries of the same run read the
+    same hour.
+
+    Args:
+        params: DAG params; ``source_path`` is optional.
+        dag_run: The current DAG run, used as the time reference.
+
+    Returns:
+        dict: SourceSelection as dict {bucket, prefix, match_glob}.
     """
     bucket = Variable.get("weather_data_bucket")
     source_path = (params.get("source_path") or "").strip()
@@ -104,9 +128,16 @@ def resolve_source(params: dict, dag_run=None) -> dict:
 def list_bronze_files(selection: dict) -> list[str]:
     """List JSON files of the selected source.
 
-    Input:   selection - output of resolve_source.
-    Purpose: rule "input files exist": at least one .json must be present.
-    Output:  sorted list of object names; fails the DAG if empty.
+    Rule "input files exist": at least one .json must be present.
+
+    Args:
+        selection: Output of resolve_source.
+
+    Returns:
+        list[str]: Sorted names of the bronze .json objects.
+
+    Raises:
+        AirflowFailException: If no .json files are found.
     """
     source = SourceSelection(**selection)
     objects = GCSHook(gcp_conn_id=GCP_CONN_ID).list(
@@ -123,10 +154,17 @@ def list_bronze_files(selection: dict) -> list[str]:
 def transform_to_silver(selection: dict, objects: list[str]) -> dict:
     """Download, validate, flatten, deduplicate and write silver CSV files.
 
-    Input:   selection - source bucket; objects - bronze object names.
-    Purpose: produce silver CSVs (one per location-hour) in the data bucket.
-    Output:  {"silver_objects": [...], valid/rejected/duplicates counters};
-             fails the DAG if no valid records remain.
+    Produce silver CSVs (one per location-hour) in the data bucket.
+
+    Args:
+        selection: Source bucket.
+        objects: Bronze object names.
+
+    Returns:
+        dict: {"silver_objects": [...], valid/rejected/duplicates counters}.
+
+    Raises:
+        AirflowFailException: If no valid records remain after validation.
     """
     hook = GCSHook(gcp_conn_id=GCP_CONN_ID)
     result = _transform(_download(hook, SourceSelection(**selection), objects))
@@ -138,9 +176,13 @@ def transform_to_silver(selection: dict, objects: list[str]) -> dict:
 def load_to_gold(source_objects) -> GCSToBigQueryOperator:
     """Create the task that appends silver CSVs into the gold table.
 
-    Input:   source_objects - XComArg with silver object names.
-    Purpose: load with the explicit schema; the table itself is owned by Terraform.
-    Output:  GCSToBigQueryOperator task.
+    Load with the explicit schema; the table itself is owned by Terraform.
+
+    Args:
+        source_objects: XComArg with silver object names.
+
+    Returns:
+        GCSToBigQueryOperator: The ``load_to_gold`` task.
     """
     return GCSToBigQueryOperator(
         task_id="load_to_gold",
@@ -178,9 +220,10 @@ def load_to_gold(source_objects) -> GCSToBigQueryOperator:
 def weather_silver_processing():
     """Wire the pipeline steps.
 
-    Input:   none.
-    Purpose: define task order; the logic lives in the module-level tasks.
-    Output:  DAG object.
+    Define task order; the logic lives in the module-level tasks.
+
+    Returns:
+        DAG: The weather_silver_processing DAG.
     """
     selection = resolve_source()
     silver = transform_to_silver(selection, list_bronze_files(selection))

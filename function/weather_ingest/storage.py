@@ -17,9 +17,17 @@ class RawStorage(ABC):
     def write(self, object_name: str, payload: str) -> str:
         """Persist one raw payload.
 
-        Input:   object_name - path inside the storage; payload - raw text.
-        Purpose: store data immutably (never overwrite existing objects).
-        Output:  full URI of the stored object; raises ObjectAlreadyExistsError.
+        Store data immutably (never overwrite existing objects).
+
+        Args:
+            object_name: Path inside the storage.
+            payload: Raw text.
+
+        Returns:
+            str: Full URI of the stored object.
+
+        Raises:
+            ObjectAlreadyExistsError: If an object with this name already exists.
         """
 
 
@@ -29,10 +37,11 @@ class GcsRawStorage(RawStorage):
     def __init__(self, bucket_name: str, client: storage.Client | None = None) -> None:
         """Bind the storage to a bucket.
 
-        Input:   bucket_name - target GCS bucket; client - optional
-                 storage.Client (created lazily if not given).
-        Purpose: hide GCS SDK details behind the RawStorage interface.
-        Output:  None.
+        Hide GCS SDK details behind the RawStorage interface.
+
+        Args:
+            bucket_name: Target GCS bucket.
+            client: Optional storage.Client (created lazily if not given).
         """
         self._bucket_name = bucket_name
         self._client = client
@@ -41,9 +50,10 @@ class GcsRawStorage(RawStorage):
     def _bucket(self) -> storage.Bucket:
         """Return the bucket handle, creating the GCS client on first use.
 
-        Input:   none.
-        Purpose: avoid creating a client until it is actually needed.
-        Output:  google.cloud.storage.Bucket.
+        Avoid creating a client until it is actually needed.
+
+        Returns:
+            storage.Bucket: The google.cloud.storage.Bucket handle.
         """
         if self._client is None:
             self._client = storage.Client()
@@ -52,10 +62,17 @@ class GcsRawStorage(RawStorage):
     def write(self, object_name: str, payload: str) -> str:
         """Upload a JSON payload to GCS without overwriting.
 
-        Input:   object_name - object path in the bucket; payload - JSON text.
-        Purpose: store the raw API response in the bronze layer.
-        Output:  "gs://<bucket>/<object_name>"; raises ObjectAlreadyExistsError
-                 if the object already exists (if_generation_match=0).
+        Store the raw API response in the bronze layer.
+
+        Args:
+            object_name: Object path in the bucket.
+            payload: JSON text.
+
+        Returns:
+            str: "gs://<bucket>/<object_name>".
+
+        Raises:
+            ObjectAlreadyExistsError: If the object already exists (if_generation_match=0).
         """
         blob = self._bucket.blob(object_name)
         try:

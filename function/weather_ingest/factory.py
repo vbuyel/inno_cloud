@@ -17,9 +17,10 @@ from weather_ingest.storage import GcsRawStorage
 def shared_gcs_client() -> storage.Client:
     """Return a GCS client shared across invocations of the same instance.
 
-    Input:   none.
-    Purpose: avoid re-creating clients (and auth) on every request.
-    Output:  google.cloud.storage.Client (cached).
+    Avoid re-creating clients (and auth) on every request.
+
+    Returns:
+        storage.Client: A cached google.cloud.storage.Client.
     """
     return storage.Client()
 
@@ -27,10 +28,13 @@ def shared_gcs_client() -> storage.Client:
 def build_service(config: IngestConfig) -> WeatherIngestionService:
     """Build the production service: tomorrow.io source + GCS storage.
 
-    Input:   config - IngestConfig.
-    Purpose: wire concrete implementations; to switch provider or storage,
-             change only this function.
-    Output:  ready-to-use WeatherIngestionService.
+    Wire concrete implementations; to switch provider or storage, change only this function.
+
+    Args:
+        config: IngestConfig.
+
+    Returns:
+        WeatherIngestionService: Ready-to-use WeatherIngestionService.
     """
     return WeatherIngestionService(
         source=TomorrowIoClient(api_key=config.api_key, units=config.units),

@@ -32,9 +32,13 @@ SILVER_COLUMNS: tuple[str, ...] = tuple(field["name"] for field in BQ_SCHEMA)
 def to_bq_timestamp(value: datetime) -> str:
     """Format a datetime for BigQuery CSV loads.
 
-    Input:   value - timezone-aware datetime.
-    Purpose: produce an unambiguous UTC timestamp BigQuery parses natively.
-    Output:  string like "2026-11-20 14:10:00+00:00".
+    Produce an unambiguous UTC timestamp BigQuery parses natively.
+
+    Args:
+        value: Timezone-aware datetime.
+
+    Returns:
+        str: String like "2026-11-20 14:10:00+00:00".
     """
     return value.astimezone(timezone.utc).isoformat(sep=" ")
 
@@ -56,18 +60,20 @@ class SilverRecord:
     def dedup_key(self) -> tuple[str, datetime]:
         """Business key of the record.
 
-        Input:   none.
-        Purpose: identify the same observation coming from different files.
-        Output:  (location_name, event_time).
+        Identify the same observation coming from different files.
+
+        Returns:
+            tuple[str, datetime]: (location_name, event_time).
         """
         return self.location_name, self.event_time
 
     def to_row(self) -> dict[str, str]:
         """Serialize the record into a CSV row.
 
-        Input:   none.
-        Purpose: map fields to SILVER_COLUMNS; None becomes "" (NULL in BigQuery).
-        Output:  dict column -> string value.
+        Map fields to SILVER_COLUMNS; None becomes "" (NULL in BigQuery).
+
+        Returns:
+            dict[str, str]: Mapping of column name to string value ("" for NULL).
         """
         row = {
             "source_object": self.source_object,

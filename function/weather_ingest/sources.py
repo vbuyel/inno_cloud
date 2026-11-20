@@ -17,9 +17,16 @@ class WeatherSource(ABC):
     def fetch_realtime(self, location: str) -> str:
         """Fetch the current weather for one location.
 
-        Input:   location - provider-specific location (city name or "lat,lon").
-        Purpose: get the raw payload to be stored in bronze without changes.
-        Output:  raw response body (JSON string); raises WeatherSourceError.
+        Get the raw payload to be stored in bronze without changes.
+
+        Args:
+            location: Provider-specific location (city name or "lat,lon").
+
+        Returns:
+            str: Raw response body (JSON string).
+
+        Raises:
+            WeatherSourceError: If the provider cannot return a valid response.
         """
 
 
@@ -37,11 +44,13 @@ class TomorrowIoClient(WeatherSource):
     ) -> None:
         """Create a tomorrow.io client.
 
-        Input:   api_key - tomorrow.io API key; units - "metric" or "imperial";
-                 timeout_s - HTTP timeout; session - optional requests.Session
-                 (reused connections, easy to mock in tests).
-        Purpose: keep HTTP details (URL, params, headers) in one place.
-        Output:  None.
+        Keep HTTP details (URL, params, headers) in one place.
+
+        Args:
+            api_key: The tomorrow.io API key.
+            units: "metric" or "imperial".
+            timeout_s: HTTP timeout.
+            session: Optional requests.Session (reused connections, easy to mock in tests).
         """
         self._api_key = api_key
         self._units = units
@@ -51,10 +60,17 @@ class TomorrowIoClient(WeatherSource):
     def fetch_realtime(self, location: str) -> str:
         """Call GET /v4/weather/realtime for one location.
 
-        Input:   location - city name or "lat,lon".
-        Purpose: download the current weather exactly as the API returns it.
-        Output:  raw JSON body as str; raises WeatherSourceError on HTTP or
-                 network errors (the URL is never logged: it contains the key).
+        Download the current weather exactly as the API returns it.
+
+        Args:
+            location: City name or "lat,lon".
+
+        Returns:
+            str: The raw JSON response body.
+
+        Raises:
+            WeatherSourceError: On HTTP or network errors (the URL is never logged: it contains the
+                key).
         """
         try:
             response = self._session.get(
@@ -74,10 +90,14 @@ class TomorrowIoClient(WeatherSource):
     def _describe_status(response: requests.Response | None) -> str:
         """Turn an HTTP error response into a readable status description.
 
-        Input:   response - failed requests.Response (may be None).
-        Purpose: report the real status from the API instead of a fixed text.
-        Output:  e.g. "HTTP 429 Too Many Requests"; "HTTP status unknown" if
-                 there is no response or the code is non-standard.
+        Report the real status from the API instead of a fixed text.
+
+        Args:
+            response: Failed requests.Response (may be None).
+
+        Returns:
+            str: A description such as "HTTP 429 Too Many Requests", "HTTP 599" for a non-standard
+                code, or "HTTP status unknown" if there is no response.
         """
         if response is None:
             return "HTTP status unknown"

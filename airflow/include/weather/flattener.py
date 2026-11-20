@@ -15,11 +15,15 @@ class PayloadFlattener:
     def flatten(self, payload: dict, source_object: str, ingested_at: datetime) -> SilverRecord:
         """Build a flat record from a VALIDATED payload.
 
-        Input:   payload - payload that passed PayloadValidator;
-                 source_object - "gs://bucket/path.json" of the bronze file;
-                 ingested_at - processing timestamp (same for the whole run).
-        Purpose: turn nested JSON into one row of the silver/gold schema.
-        Output:  SilverRecord.
+        Turn nested JSON into one row of the silver/gold schema.
+
+        Args:
+            payload: Payload that passed PayloadValidator.
+            source_object: "gs://bucket/path.json" of the bronze file.
+            ingested_at: Processing timestamp (same for the whole run).
+
+        Returns:
+            SilverRecord: One row of the silver/gold schema.
         """
         event_time = parse_event_time(payload["data"]["time"])
         if event_time is None:  # guarded by the validator; keeps the type checker honest
@@ -36,9 +40,13 @@ class PayloadFlattener:
     def _location_fields(self, location: dict) -> dict[str, Any]:
         """Extract location columns.
 
-        Input:   location - validated "location" object.
-        Purpose: map name/lat/lon/type onto silver columns.
-        Output:  dict with location_name, location_lat, location_lon, location_type.
+        Map name/lat/lon/type onto silver columns.
+
+        Args:
+            location: Validated "location" object.
+
+        Returns:
+            dict[str, Any]: Values for location_name, location_lat, location_lon and location_type.
         """
         return {
             "location_name": location["name"].strip(),
@@ -51,9 +59,13 @@ class PayloadFlattener:
     def _optional_float(value: Any) -> float | None:
         """Convert an optional numeric value.
 
-        Input:   value - JSON value or None.
-        Purpose: optional columns become NULL instead of failing the record.
-        Output:  float, or None if missing/not numeric.
+        Optional columns become NULL instead of failing the record.
+
+        Args:
+            value: JSON value or None.
+
+        Returns:
+            float | None: The value as float, or None if missing or not numeric.
         """
         return float(value) if is_number(value) else None
 
@@ -61,8 +73,12 @@ class PayloadFlattener:
     def _optional_str(value: Any) -> str | None:
         """Convert an optional text value.
 
-        Input:   value - JSON value or None.
-        Purpose: keep only non-empty strings.
-        Output:  stripped string, or None.
+        Keep only non-empty strings.
+
+        Args:
+            value: JSON value or None.
+
+        Returns:
+            str | None: The stripped string, or None if missing or empty.
         """
         return value.strip() or None if isinstance(value, str) else None

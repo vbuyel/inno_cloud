@@ -10,7 +10,16 @@ T1 = datetime(2026, 11, 20, 13, 10, tzinfo=timezone.utc)
 
 
 def record(source: str, time: datetime, name: str = "Minsk") -> SilverRecord:
-    """Input: source object, time, name. Purpose: minimal record. Output: SilverRecord."""
+    """Minimal record.
+
+    Args:
+        source: Source object URI.
+        time: Event time.
+        name: Location name.
+
+    Returns:
+        SilverRecord: A record with empty metrics and no optional location fields.
+    """
     return SilverRecord(source, time, name, None, None, None, T1, {})
 
 

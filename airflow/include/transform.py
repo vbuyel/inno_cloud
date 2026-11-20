@@ -39,9 +39,10 @@ class BronzeFile:
     def uri(self) -> str:
         """Return the file URI (stored in the source_object column).
 
-        Input:   none.
-        Purpose: keep lineage from every gold row back to its raw file.
-        Output:  "gs://<bucket>/<object_name>".
+        Keep lineage from every gold row back to its raw file.
+
+        Returns:
+            str: "gs://<bucket>/<object_name>".
         """
         return f"gs://{self.bucket}/{self.object_name}"
 
@@ -66,9 +67,11 @@ class TransformResult:
     def summary(self) -> dict[str, int]:
         """Return counters for logs and XCom.
 
-        Input:   none.
-        Purpose: make the run outcome visible in the Airflow UI.
-        Output:  dict with valid/rejected/duplicates/files counters.
+        Make the run outcome visible in the Airflow UI.
+
+        Returns:
+            dict[str, int]: Counters: valid_records, rejected_records, duplicates_removed,
+                silver_files.
         """
         return {
             "valid_records": self.valid_records,
@@ -92,10 +95,15 @@ class SilverTransformer:
     ) -> None:
         """Wire the transformer with its collaborators.
 
-        Input:   layouts for both layers; optional validator/flattener/
-                 deduplicator/csv_writer (defaults are the project ones).
-        Purpose: dependency injection, every step can be replaced or tested alone.
-        Output:  None.
+        Dependency injection, every step can be replaced or tested alone.
+
+        Args:
+            bronze_layout: Bronze path convention.
+            silver_layout: Silver path convention.
+            validator: Payload validator; defaults to the project rules.
+            flattener: Payload flattener; defaults to PayloadFlattener.
+            deduplicator: Record deduplicator; defaults to RecordDeduplicator.
+            csv_writer: CSV writer; defaults to SilverCsvWriter.
         """
         self._bronze = bronze_layout
         self._silver = silver_layout
@@ -107,11 +115,19 @@ class SilverTransformer:
     def transform(self, files: Iterable[BronzeFile], ingested_at: datetime) -> TransformResult:
         """Turn raw files into silver CSV texts grouped by location-hour.
 
-        Input:   files - downloaded bronze files; ingested_at - processing time
-                 (written to ingested_at_utc and used in CSV names).
-        Purpose: apply all validation rules, drop invalid records with warnings,
-                 deduplicate and split output into partitions.
-        Output:  TransformResult; raises NoValidRecordsError if nothing is valid.
+        Apply all validation rules, drop invalid records with warnings, deduplicate and split output
+        into partitions.
+
+        Args:
+            files: Downloaded bronze files.
+            ingested_at: Processing time (written to ingested_at_utc and used in CSV names).
+
+        Returns:
+            TransformResult: Silver CSV texts keyed by object name, plus run counters and rejected
+                files.
+
+        Raises:
+            NoValidRecordsError: If nothing is valid.
         """
         result = TransformResult()
         records, partitions = self._collect_records(files, ingested_at, result)
@@ -132,10 +148,16 @@ class SilverTransformer:
     ) -> tuple[list[SilverRecord], dict[str, Partition]]:
         """Convert every file into a record, skipping rejected ones.
 
-        Input:   files - bronze files; ingested_at - processing time;
-                 result - collects rejected files.
-        Purpose: keep valid records together with their target partition.
-        Output:  (records, {source_object: Partition}).
+        Keep valid records together with their target partition.
+
+        Args:
+            files: Bronze files.
+            ingested_at: Processing time.
+            result: Collects rejected files.
+
+        Returns:
+            tuple[list[SilverRecord], dict[str, Partition]]: Valid records and the target partition
+                for each source_object.
         """
         records: list[SilverRecord] = []
         partitions: dict[str, Partition] = {}
@@ -149,9 +171,14 @@ class SilverTransformer:
     def _deduplicate(self, records: list[SilverRecord], result: TransformResult) -> list[SilverRecord]:
         """Drop duplicates and log each of them.
 
-        Input:   records - valid records; result - receives the duplicate count.
-        Purpose: rule "deduplication by (location_name, time)".
-        Output:  unique records.
+        Rule "deduplication by (location_name, time)".
+
+        Args:
+            records: Valid records.
+            result: Receives the duplicate count.
+
+        Returns:
+            list[SilverRecord]: Unique records.
         """
         dedup = self._deduplicator.deduplicate(records)
         result.duplicates = len(dedup.duplicates)
@@ -162,10 +189,16 @@ class SilverTransformer:
     def _to_record(self, file: BronzeFile, ingested_at: datetime, result: TransformResult) -> SilverRecord | None:
         """Parse, validate and flatten one file.
 
-        Input:   file - bronze file; ingested_at - processing time;
-                 result - collects rejected files.
-        Purpose: isolate per-file failures (bad JSON or failed rules).
-        Output:  SilverRecord, or None if the file was rejected (logged as warning).
+        Isolate per-file failures (bad JSON or failed rules).
+
+        Args:
+            file: Bronze file.
+            ingested_at: Processing time.
+            result: Collects rejected files.
+
+        Returns:
+            SilverRecord | None: The flattened record, or None if the file was rejected (logged as a
+                warning).
         """
         try:
             payload = json.loads(file.content)
@@ -183,10 +216,16 @@ class SilverTransformer:
     def _partition_for(self, file: BronzeFile, record: SilverRecord) -> Partition:
         """Choose the silver partition for a record.
 
-        Input:   file - its bronze file; record - flattened record.
-        Purpose: mirror the bronze partition; for files outside the convention
-                 (custom source_path) fall back to location_name + event hour.
-        Output:  Partition.
+        Mirror the bronze partition; for files outside the convention (custom source_path) fall back
+        to location_name + event hour.
+
+        Args:
+            file: Its bronze file.
+            record: Flattened record.
+
+        Returns:
+            Partition: The bronze partition of the file, or location_name + event hour as a
+                fallback.
         """
         return self._bronze.partition_of(file.object_name) or Partition(
             location=location_slug(record.location_name), hour=floor_to_hour(record.event_time)

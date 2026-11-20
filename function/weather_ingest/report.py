@@ -23,18 +23,21 @@ class IngestionReport:
     def add_success(self, uri: str) -> None:
         """Register a stored object.
 
-        Input:   uri - "gs://..." URI of the stored payload.
-        Purpose: collect successful writes for the response and logs.
-        Output:  None.
+        Collect successful writes for the response and logs.
+
+        Args:
+            uri: "gs://..." URI of the stored payload.
         """
         self.written.append(uri)
 
     def add_error(self, location: str, reason: str) -> None:
         """Register a failed location.
 
-        Input:   location - location that failed; reason - short description.
-        Purpose: report per-location failures without stopping the run.
-        Output:  None.
+        Report per-location failures without stopping the run.
+
+        Args:
+            location: Location that failed.
+            reason: Short description.
         """
         self.errors[location] = reason
 
@@ -42,11 +45,11 @@ class IngestionReport:
     def http_status(self) -> HTTPStatus:
         """Map the run outcome to an HTTP status.
 
-        Input:   none (uses written/errors).
-        Purpose: let Cloud Scheduler distinguish success from failure.
-        Output:  STATUS_ALL_STORED (OK) - all locations stored;
-                 STATUS_PARTIAL (MULTI_STATUS) - partial success;
-                 STATUS_NOTHING_STORED (BAD_GATEWAY) - nothing stored.
+        Let Cloud Scheduler distinguish success from failure. Uses written/errors.
+
+        Returns:
+            HTTPStatus: STATUS_ALL_STORED (OK) - all locations stored; STATUS_PARTIAL (MULTI_STATUS)
+                - partial success; STATUS_NOTHING_STORED (BAD_GATEWAY) - nothing stored.
         """
         if not self.errors:
             return self.STATUS_ALL_STORED
@@ -55,8 +58,9 @@ class IngestionReport:
     def to_json(self) -> str:
         """Serialize the report for the HTTP response.
 
-        Input:   none.
-        Purpose: return a machine-readable summary to the caller.
-        Output:  JSON string {"written": [...], "errors": {...}}.
+        Return a machine-readable summary to the caller.
+
+        Returns:
+            str: JSON string {"written": [...], "errors": {...}}.
         """
         return json.dumps({"written": self.written, "errors": self.errors})

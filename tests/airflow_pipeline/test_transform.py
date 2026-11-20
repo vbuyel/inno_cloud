@@ -11,7 +11,11 @@ INGESTED_AT = datetime(2026, 11, 20, 14, 5, tzinfo=timezone.utc)
 
 @pytest.fixture
 def transformer() -> SilverTransformer:
-    """Input: none. Purpose: transformer with project layouts. Output: SilverTransformer."""
+    """Transformer with project layouts.
+
+    Returns:
+        SilverTransformer: Transformer using the project bronze/silver layouts.
+    """
     return SilverTransformer(BronzeLayout("bronze/weather/realtime"), SilverLayout("silver/weather/realtime"))
 
 

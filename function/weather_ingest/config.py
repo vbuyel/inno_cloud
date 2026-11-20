@@ -32,10 +32,16 @@ class IngestConfig:
     def from_env(cls, env: Mapping[str, str] | None = None) -> IngestConfig:
         """Build the configuration from environment variables.
 
-        Input:   env - mapping of variables; defaults to os.environ.
-        Purpose: validate required settings once, at the start of a request.
-        Output:  IngestConfig instance; raises RuntimeError if a required
-                 variable is missing or LOCATIONS is empty.
+        Validate required settings once, at the start of a request.
+
+        Args:
+            env: Mapping of variables; defaults to os.environ.
+
+        Returns:
+            IngestConfig: Validated configuration.
+
+        Raises:
+            RuntimeError: If a required variable is missing or LOCATIONS is empty.
         """
         env = os.environ if env is None else env
 
@@ -55,9 +61,17 @@ class IngestConfig:
     def _required(env: Mapping[str, str], name: str) -> str:
         """Read a mandatory variable.
 
-        Input:   env - mapping of variables; name - variable name.
-        Purpose: fail fast with a clear message instead of a later KeyError.
-        Output:  stripped non-empty value; raises RuntimeError if missing.
+        Fail fast with a clear message instead of a later KeyError.
+
+        Args:
+            env: Mapping of variables.
+            name: Variable name.
+
+        Returns:
+            str: The stripped, non-empty value.
+
+        Raises:
+            RuntimeError: If missing.
         """
         value = env.get(name, "").strip()
         if not value:
@@ -68,8 +82,12 @@ class IngestConfig:
     def _parse_locations(raw: str) -> tuple[str, ...]:
         """Split the LOCATIONS value into individual locations.
 
-        Input:   raw - e.g. " minsk ; 53.9,27.56 ".
-        Purpose: normalize user input (trim spaces, drop empty items).
-        Output:  tuple of locations, e.g. ("minsk", "53.9,27.56").
+        Normalize user input (trim spaces, drop empty items).
+
+        Args:
+            raw: E.g. " minsk; 53.9,27.56 ".
+
+        Returns:
+            tuple[str, ...]: Locations, e.g. ("minsk", "53.9,27.56").
         """
         return tuple(loc.strip() for loc in raw.split(LOCATIONS_SEPARATOR) if loc.strip())

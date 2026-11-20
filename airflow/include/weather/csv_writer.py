@@ -15,9 +15,13 @@ class SilverCsvWriter:
     def to_csv(self, records: Iterable[SilverRecord]) -> str:
         """Render records as CSV text.
 
-        Input:   records - silver records.
-        Purpose: produce the silver file; column order == BigQuery column order.
-        Output:  CSV string with a header row ("\\n" line endings, minimal quoting).
+        Produce the silver file; column order == BigQuery column order.
+
+        Args:
+            records: Silver records.
+
+        Returns:
+            str: CSV string with a header row ("\n" line endings, minimal quoting).
         """
         buffer = io.StringIO()
         writer = csv.DictWriter(buffer, fieldnames=SILVER_COLUMNS, lineterminator="\n")
