@@ -99,13 +99,13 @@ inno_cloud/
   echo -n "KEY" | gcloud secrets versions add tomorrow-api-key --data-file=-
   ```
 
-- ✅ **Проверка:** в консоли видны бакет, пустая таблица и секрет.
+- **Проверка:** в консоли видны бакет, пустая таблица и секрет.
 
 ### Шаг 3. Функция
 
 - Написать `function/main.py`: прочитать ключ из env (Terraform пробросит его из секрета) → `GET https://api.tomorrow.io/v4/weather/realtime?location=<loc>&apikey=...` → `blob.upload_from_string(response.text)` в нужный путь.
 - Описать функцию в Terraform: `archive_file` → upload zip → `google_cloudfunctions2_function` с `service_account_email = sa-weather-ingest`.
-- ✅ **Проверка:** вызвать функцию вручную, в бакете должен появиться JSON:
+- **Проверка:** вызвать функцию вручную, в бакете должен появиться JSON:
 
   ```bash
   curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" <function_url>
@@ -114,14 +114,14 @@ inno_cloud/
 ### Шаг 4. Scheduler
 
 - `google_cloud_scheduler_job` со `schedule = "*/10 * * * *"`, `http_target` на URL функции и `oidc_token` от `sa-scheduler-invoker`.
-- ✅ **Проверка:** через 20–30 минут в bronze лежит несколько файлов. Дальше функция работает сама, а данные копятся, пока вы пишете DAG.
+- **Проверка:** через 20–30 минут в bronze лежит несколько файлов. Дальше функция работает сама, а данные копятся, пока вы пишете DAG.
 
 ### Шаг 5. Локальный Airflow
 
 - Скачать официальный `docker-compose.yaml` Airflow и выполнить `docker compose up`.
 - Дать контейнерам доступ к GCP. Рекомендуемый вариант: смонтировать `~/.config/gcloud` в контейнер, а в connection `google_cloud_default` указать `impersonation_chain = sa-airflow@...`. Для этого вашему пользователю нужна роль `roles/iam.serviceAccountTokenCreator` на `sa-airflow` — её тоже выдаёт Terraform.
 - Вариант проще, но хуже: JSON-ключ `sa-airflow`, который лежит в `.gitignore`.
-- ✅ **Проверка:** тестовый DAG выводит список файлов в bronze.
+- **Проверка:** тестовый DAG выводит список файлов в bronze.
 
 ### Шаг 6. DAG
 
@@ -136,7 +136,7 @@ inno_cloud/
    Невалидные записи логировать как warning, затем сделать dedup по `(location_name, time)`. Если валидных строк не осталось, задача падает. Результат записать в CSV с колонками строго как в схеме BigQuery.
 4. **`GCSToBigQueryOperator`** — `source_format="CSV"`, `skip_leading_rows=1`, `write_disposition="WRITE_APPEND"`.
 
-- ✅ **Проверка:** запрос возвращает строки:
+- **Проверка:** запрос возвращает строки:
 
   ```sql
   SELECT * FROM gold ORDER BY event_time DESC

@@ -48,6 +48,16 @@ output "function_url" {
   value       = google_cloudfunctions2_function.ingest.url
 }
 
+output "scheduler_job" {
+  description = "Cloud Scheduler job that triggers the ingest function."
+  value       = google_cloud_scheduler_job.ingest.name
+}
+
+output "scheduler_cron" {
+  description = "Effective trigger schedule (UTC)."
+  value       = google_cloud_scheduler_job.ingest.schedule
+}
+
 output "function_run_service" {
   description = "Underlying Cloud Run service name (target for run.invoker bindings)."
   value       = google_cloudfunctions2_function.ingest.service_config[0].service

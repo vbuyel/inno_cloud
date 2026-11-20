@@ -61,7 +61,7 @@ resource "google_secret_manager_secret_iam_member" "ingest_secret_accessor" {
   member    = google_service_account.ingest.member
 }
 
-# Scheduler SA gets run.invoker on the function itself in step 3 (scheduler.tf),
+# Scheduler SA gets run.invoker on the function itself in scheduler.tf,
 # because that binding needs the function resource to exist.
 
 # Airflow: read bronze, write silver, append into the gold table

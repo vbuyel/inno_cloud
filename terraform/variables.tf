@@ -151,6 +151,23 @@ variable "function_max_instances" {
   }
 }
 
+variable "scheduler_cron" {
+  description = "Cron schedule (UTC) for triggering the ingest function."
+  type        = string
+  default     = "*/10 * * * *"
+
+  validation {
+    condition     = length(split(" ", trimspace(var.scheduler_cron))) == 5
+    error_message = "scheduler_cron must be a 5-field cron expression, e.g. \"*/10 * * * *\"."
+  }
+}
+
+variable "scheduler_paused" {
+  description = "Pause the scheduler job without deleting it (e.g. to save API quota)."
+  type        = bool
+  default     = false
+}
+
 variable "airflow_impersonators" {
   description = "Principals allowed to impersonate the Airflow SA from a local machine, e.g. [\"user:me@example.com\"]."
   type        = list(string)
