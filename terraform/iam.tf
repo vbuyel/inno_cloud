@@ -18,6 +18,29 @@ resource "google_service_account" "airflow" {
   depends_on   = [google_project_service.apis]
 }
 
+# Dedicated Cloud Build identity for building the function image, instead of
+# the default Compute Engine SA (which often has broad Editor rights).
+resource "google_service_account" "function_build" {
+  account_id   = "${local.name}-fn-build"
+  display_name = "Cloud Build for weather ingest function (${var.env})"
+  depends_on   = [google_project_service.apis]
+}
+
+# Minimal set documented for a custom Cloud Functions build SA.
+# Project level is required: build logs, the gcf-artifacts repo and the
+# gcf-v2-sources staging bucket are created by Google, not by Terraform.
+resource "google_project_iam_member" "function_build_roles" {
+  for_each = toset([
+    "roles/logging.logWriter",
+    "roles/artifactregistry.writer",
+    "roles/storage.objectViewer",
+  ])
+
+  project = var.project_id
+  role    = each.value
+  member  = google_service_account.function_build.member
+}
+
 # Ingest function: write ONLY under bronze/, read ONLY the API key secret
 
 resource "google_storage_bucket_iam_member" "ingest_bronze_writer" {

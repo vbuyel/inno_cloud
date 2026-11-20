@@ -7,6 +7,9 @@ owner      = "your-handle"
 bq_location           = "US"
 bronze_retention_days = 30
 
+# 1-3 tomorrow.io locations: city name or "lat,lon"
+weather_locations = ["minsk"]
+
 airflow_impersonators = [
   "user:you@example.com",
 ]
