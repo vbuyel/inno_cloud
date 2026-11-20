@@ -1,0 +1,6 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Code under test lives in two independent source roots.
+pythonpath = ["function", "airflow"]
+# importlib mode: test files may share basenames and no __init__.py is needed.
+addopts = "--import-mode=importlib -ra"

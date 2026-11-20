@@ -74,17 +74,26 @@ class WeatherIngestionService:
         """
         report = IngestionReport()
         for location in locations:
-            try:
-                uri = self.ingest_location(location)
-                report.add_success(uri)
-                logger.info("Stored %s -> %s", location, uri)
-            except ObjectAlreadyExistsError as exc:
-                report.add_error(location, str(exc))
-                logger.warning("Skipped %s: %s", location, exc)
-            except IngestionError as exc:
-                report.add_error(location, str(exc))
-                logger.error("Failed %s: %s", location, exc)
-            except Exception:  # noqa: BLE001 - one bad location must not stop the rest
-                report.add_error(location, "unexpected error")
-                logger.exception("Unexpected error while ingesting %s", location)
+            self._ingest_into_report(location, report)
         return report
+
+    def _ingest_into_report(self, location: str, report: IngestionReport) -> None:
+        """Ingest one location and record the outcome instead of raising.
+
+        Input:   location - one location; report - report to update.
+        Purpose: one bad location must not stop the rest of the run.
+        Output:  None (report is updated in place).
+        """
+        try:
+            uri = self.ingest_location(location)
+            report.add_success(uri)
+            logger.info("Stored %s -> %s", location, uri)
+        except ObjectAlreadyExistsError as exc:
+            report.add_error(location, str(exc))
+            logger.warning("Skipped %s: %s", location, exc)
+        except IngestionError as exc:
+            report.add_error(location, str(exc))
+            logger.error("Failed %s: %s", location, exc)
+        except Exception:  # noqa: BLE001 - one bad location must not stop the rest
+            report.add_error(location, "unexpected error")
+            logger.exception("Unexpected error while ingesting %s", location)

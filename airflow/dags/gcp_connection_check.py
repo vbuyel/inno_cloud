@@ -32,10 +32,10 @@ logger = logging.getLogger(__name__)
     tags=["weather", "smoke-test"],
 )
 def gcp_connection_check():
-    """Define the smoke-test DAG.
+    """Wire the smoke-test tasks.
 
     Input:   none.
-    Purpose: confirm GCP connectivity before building the real pipeline.
+    Purpose: confirm GCP connectivity before running the real pipeline.
     Output:  DAG with tasks whoami >> list_bronze.
     """
 
@@ -62,8 +62,7 @@ def gcp_connection_check():
         """
         bucket = Variable.get("weather_data_bucket")
         prefix = Variable.get("weather_bronze_prefix").strip("/") + "/"
-
-        objects = GCSHook(gcp_conn_id=GCP_CONN_ID).list(bucket_name=bucket, prefix=prefix, match_glob="**/*.json")
+        objects = GCSHook(gcp_conn_id=GCP_CONN_ID).list(bucket_name=bucket, prefix=prefix, match_glob=f"{prefix}**.json")
         logger.info("Found %d JSON file(s) in gs://%s/%s", len(objects), bucket, prefix)
         for name in sorted(objects)[-PREVIEW_LIMIT:]:
             logger.info("  gs://%s/%s", bucket, name)

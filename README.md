@@ -52,32 +52,77 @@ silver/weather/realtime/<loc>/2026/11/18/13/<run_ts>.csv
 
 ```text
 inno_cloud/
-├── .gitignore              # .env, *.tfstate*, .terraform/, *.json-ключи, terraform.tfvars
-├── .env                    # локальные переменные (НЕ в git)
-├── terraform/
-│   ├── versions.tf         # terraform + провайдер (pinned)
-│   ├── providers.tf
-│   ├── variables.tf        # project_id, region, env, owner, locations… с validation
-│   ├── terraform.tfvars    # ваши значения (в git не коммитить или коммитить example)
-│   ├── apis.tf             # google_project_service
-│   ├── storage.tf          # data-бакет (bronze/ и silver/ префиксы) + бакет для исходников функции
-│   ├── secrets.tf          # секрет tomorrow-api-key (без значения!)
-│   ├── iam.tf              # SA + биндинги
-│   ├── function.tf         # archive_file → zip → cloudfunctions2_function
-│   ├── scheduler.tf        # cloud_scheduler_job
-│   ├── bigquery.tf         # dataset + gold table (схема из задания)
-│   └── outputs.tf          # function_url, bucket, table_id, sa emails
-├── function/
-│   ├── main.py             # HTTP-обработчик
-│   └── requirements.txt
-└── airflow/
-    ├── docker-compose.yaml # официальный compose от Airflow
-    ├── dags/weather_silver_processing.py
-    └── include/transform.py  # flatten/validate/dedup — отдельно, чтобы тестировать
+├── .gitignore                    # .env, *.tfstate*, .terraform/, *.tfvars, ключи, логи
+├── .env                          # локальные переменные (НЕ в git)
+├── pyproject.toml                # настройки pytest (pythonpath: function/, airflow/)
+├── requirements-dev.txt          # зависимости для локальных тестов
+│
+├── terraform/                    # вся облачная инфраструктура
+│   ├── versions.tf               # версии Terraform и провайдеров (google, archive)
+│   ├── providers.tf              # провайдер google + default_labels
+│   ├── variables.tf              # входные переменные с validation
+│   ├── locals.tf                 # имена ресурсов, метки, префиксы bronze/silver
+│   ├── terraform.tfvars          # ваши значения (НЕ в git)
+│   ├── terraform.tfvars.example  # шаблон значений
+│   ├── apis.tf                   # включение GCP API
+│   ├── storage.tf                # data-бакет (bronze/, silver/) + бакет исходников функции
+│   ├── secrets.tf                # секрет tomorrow-io-api-key (без значения)
+│   ├── iam.tf                    # service accounts и least-privilege биндинги
+│   ├── function.tf               # zip исходников → Cloud Function Gen2
+│   ├── scheduler.tf              # Cloud Scheduler (*/10) + run.invoker для scheduler SA
+│   ├── bigquery.tf               # dataset + gold-таблица (схема из задания)
+│   └── outputs.tf                # URL функции, бакеты, таблица, email'ы SA
+│
+├── function/                     # Cloud Function: tomorrow.io → bronze
+│   ├── main.py                   # HTTP entry point ingest()
+│   ├── requirements.txt
+│   └── weather_ingest/
+│       ├── config.py             # IngestConfig: чтение и проверка env
+│       ├── errors.py             # доменные исключения
+│       ├── sources.py            # WeatherSource + TomorrowIoClient
+│       ├── storage.py            # RawStorage + GcsRawStorage (без перезаписи)
+│       ├── paths.py              # BronzePathBuilder: <loc>/YYYY/MM/DD/HH/<ts>.json
+│       ├── report.py             # IngestionReport: итог запуска, HTTP-статус
+│       ├── service.py            # WeatherIngestionService: fetch → path → store
+│       └── factory.py            # build_service(): выбор конкретных реализаций
+│
+├── airflow/                      # локальный Airflow (Docker)
+│   ├── docker-compose.yaml       # официальный compose + доступ к GCP через impersonation
+│   ├── .env                      # секреты Airflow и настройки пайплайна (НЕ в git)
+│   ├── .env.example              # шаблон .env
+│   ├── config/airflow.cfg        # создаётся airflow-init
+│   ├── dags/
+│   │   ├── weather_silver_processing.py  # bronze → silver CSV → gold BigQuery
+│   │   └── gcp_connection_check.py       # smoke-тест доступа к GCP
+│   └── include/                  # логика без зависимостей от Airflow/GCP
+│       ├── transform.py          # SilverTransformer: parse → validate → flatten → dedup → partition
+│       └── weather/
+│           ├── schema.py         # колонки CSV = схема BigQuery, SilverRecord
+│           ├── validator.py      # правила валидации
+│           ├── flattener.py      # вложенный JSON → плоская запись
+│           ├── deduplicator.py   # дедупликация по (location_name, event_time)
+│           ├── partitioning.py   # пути bronze/silver, «прошлый час», source_path
+│           └── csv_writer.py     # записи → CSV
+│
+└── tests/
+    ├── cloud_function/           # тесты function/ (фейковые HTTP и GCS)
+    └── airflow_pipeline/         # тесты include/ и DAG (test_dags.py — в контейнере Airflow)
 ```
 
 > [!NOTE]
-> Пути в задании начинаются с `bronze/...` и `silver/...`, поэтому проще всего сделать **один data-бакет** с этими префиксами. Разделение прав всё равно можно сделать через IAM Conditions по префиксу, но для учебного проекта достаточно прав на уровне бакета.
+> Пути в задании начинаются с `bronze/...` и `silver/...`, поэтому используется **один data-бакет** с этими префиксами. Права разделены через IAM Conditions по префиксу: функция может создавать объекты только в `bronze/`, Airflow — только в `silver/`.
+
+### Тесты
+
+```bash
+# локально: всё, кроме test_dags.py
+.venv/bin/python -m pytest
+
+# тесты Airflow (включая DAG) в одноразовом контейнере
+cd airflow
+docker compose run --rm --no-deps -v "$(cd .. && pwd):/project:ro" -w /project \
+  --entrypoint bash airflow-cli -c 'pip install -q pytest==8.3.4 && python -m pytest tests/airflow_pipeline'
+```
 
 ## Порядок работы
 
