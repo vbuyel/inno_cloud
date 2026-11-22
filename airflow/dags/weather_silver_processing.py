@@ -43,20 +43,20 @@ def _bronze_layout() -> BronzeLayout:
     return BronzeLayout(Variable.get("weather_bronze_prefix"))
 
 
-def _download(hook: GCSHook, source: SourceSelection, objects: list[str]) -> list[BronzeFile]:
+def _download(hook: GCSHook, bucket: str, objects: list[str]) -> list[BronzeFile]:
     """Download bronze files.
 
     Keep GCS I/O out of the pure transformation code.
 
     Args:
         hook: GCS hook.
-        source: Bucket info.
+        bucket: Bucket holding the bronze objects.
         objects: Object names.
 
     Returns:
         list[BronzeFile]: Downloaded files with their raw bytes.
     """
-    return [BronzeFile(source.bucket, name, hook.download(source.bucket, name)) for name in objects]
+    return [BronzeFile(bucket, name, hook.download(bucket, name)) for name in objects]
 
 
 def _upload(hook: GCSHook, outputs: dict[str, str]) -> list[str]:
@@ -125,7 +125,7 @@ def resolve_source(params: dict, dag_run=None) -> dict:
 
 
 @task
-def list_bronze_files(selection: dict) -> list[str]:
+def list_bronze_files(selection: dict) -> dict:
     """List JSON files of the selected source.
 
     Rule "input files exist": at least one .json must be present.
@@ -134,7 +134,7 @@ def list_bronze_files(selection: dict) -> list[str]:
         selection: Output of resolve_source.
 
     Returns:
-        list[str]: Sorted names of the bronze .json objects.
+        dict: {"bucket": str, "objects": sorted names of the bronze .json objects}.
 
     Raises:
         AirflowFailException: If no .json files are found.
@@ -147,18 +147,17 @@ def list_bronze_files(selection: dict) -> list[str]:
     if not objects:
         raise AirflowFailException(f"No .json files found in {source.uri}")
     logger.info("Found %d file(s) in %s", len(objects), source.uri)
-    return objects
+    return {"bucket": source.bucket, "objects": objects}
 
 
 @task(multiple_outputs=True)
-def transform_to_silver(selection: dict, objects: list[str]) -> dict:
+def transform_to_silver(listing: dict) -> dict:
     """Download, validate, flatten, deduplicate and write silver CSV files.
 
     Produce silver CSVs (one per location-hour) in the data bucket.
 
     Args:
-        selection: Source bucket.
-        objects: Bronze object names.
+        listing: Output of list_bronze_files ({"bucket", "objects"}).
 
     Returns:
         dict: {"silver_objects": [...], valid/rejected/duplicates counters}.
@@ -167,7 +166,7 @@ def transform_to_silver(selection: dict, objects: list[str]) -> dict:
         AirflowFailException: If no valid records remain after validation.
     """
     hook = GCSHook(gcp_conn_id=GCP_CONN_ID)
-    result = _transform(_download(hook, SourceSelection(**selection), objects))
+    result = _transform(_download(hook, listing["bucket"], listing["objects"]))
     silver_objects = _upload(hook, result.outputs)
     logger.info("Summary: %s", result.summary())
     return {"silver_objects": silver_objects, **result.summary()}
@@ -225,8 +224,7 @@ def weather_silver_processing():
     Returns:
         DAG: The weather_silver_processing DAG.
     """
-    selection = resolve_source()
-    silver = transform_to_silver(selection, list_bronze_files(selection))
+    silver = transform_to_silver(list_bronze_files(resolve_source()))
     silver >> load_to_gold(silver["silver_objects"])
 
 
