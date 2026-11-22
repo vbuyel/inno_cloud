@@ -61,8 +61,17 @@ resource "google_secret_manager_secret_iam_member" "ingest_secret_accessor" {
   member    = google_service_account.ingest.member
 }
 
-# Scheduler SA gets run.invoker on the function itself in scheduler.tf,
-# because that binding needs the function resource to exist.
+# Scheduler: may invoke ONLY the ingest function
+
+# A Gen2 function is served by a Cloud Run service with the same name;
+# invocation is authorized by run.invoker on that service.
+resource "google_cloud_run_v2_service_iam_member" "scheduler_invoker" {
+  project  = var.project_id
+  location = google_cloudfunctions2_function.ingest.location
+  name     = google_cloudfunctions2_function.ingest.name
+  role     = "roles/run.invoker"
+  member   = google_service_account.scheduler.member
+}
 
 # Airflow: read bronze, write silver, append into the gold table
 

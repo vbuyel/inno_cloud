@@ -26,7 +26,7 @@
 ```
 
 - **Процесс A (ingestion)** полностью живёт в облаке. Scheduler раз в 10 минут дёргает функцию, функция пишет файл в bronze. После `terraform apply` он работает сам, ваш компьютер для этого не нужен.
-- **Процесс B (processing)** — Airflow на вашем компьютере в Docker. Вы запускаете DAG вручную. Он идёт в GCS как обычный клиент, используя credentials service account'а `sa-airflow`.
+- **Процесс B (processing)** — Airflow на вашем компьютере в Docker. Вы запускаете DAG вручную. Он идёт в GCS как обычный клиент, используя credentials service account'а `weather-dev-airflow`.
 
 Terraform создаёт всё, что в облаке: бакет(ы), функцию, Scheduler, секрет, BigQuery-таблицу, service accounts и права. Airflow Terraform не трогает.
 
@@ -61,15 +61,15 @@ inno_cloud/
 │   ├── versions.tf               # версии Terraform и провайдеров (google, archive)
 │   ├── providers.tf              # провайдер google + default_labels
 │   ├── variables.tf              # входные переменные с validation
-│   ├── locals.tf                 # имена ресурсов, метки, префиксы bronze/silver
+│   ├── locals.tf                 # имена ресурсов, метки, префиксы bronze/silver, список API
 │   ├── terraform.tfvars          # ваши значения (НЕ в git)
 │   ├── terraform.tfvars.example  # шаблон значений
+│   ├── main.tf                   # основной поток: Cloud Scheduler (*/10) → Cloud Function Gen2
+│   ├── function_source.tf        # zip исходников function/ → объект в бакете исходников
 │   ├── apis.tf                   # включение GCP API
 │   ├── storage.tf                # data-бакет (bronze/, silver/) + бакет исходников функции
 │   ├── secrets.tf                # секрет tomorrow-io-api-key (без значения)
-│   ├── iam.tf                    # service accounts и least-privilege биндинги
-│   ├── function.tf               # zip исходников → Cloud Function Gen2
-│   ├── scheduler.tf              # Cloud Scheduler (*/10) + run.invoker для scheduler SA
+│   ├── iam.tf                    # service accounts и least-privilege биндинги (вкл. run.invoker)
 │   ├── bigquery.tf               # dataset + gold-таблица (схема из задания)
 │   └── outputs.tf                # URL функции, бакеты, таблица, email'ы SA
 │
@@ -141,7 +141,7 @@ docker compose run --rm --no-deps -v "$(cd .. && pwd):/project:ro" -w /project \
 - Положить значение ключа руками, чтобы оно не попало в код и state:
 
   ```bash
-  echo -n "KEY" | gcloud secrets versions add tomorrow-api-key --data-file=-
+  echo -n "KEY" | gcloud secrets versions add tomorrow-io-api-key --data-file=-
   ```
 
 - **Проверка:** в консоли видны бакет, пустая таблица и секрет.
@@ -149,7 +149,7 @@ docker compose run --rm --no-deps -v "$(cd .. && pwd):/project:ro" -w /project \
 ### Шаг 3. Функция
 
 - Написать `function/main.py`: прочитать ключ из env (Terraform пробросит его из секрета) → `GET https://api.tomorrow.io/v4/weather/realtime?location=<loc>&apikey=...` → `blob.upload_from_string(response.text)` в нужный путь.
-- Описать функцию в Terraform: `archive_file` → upload zip → `google_cloudfunctions2_function` с `service_account_email = sa-weather-ingest`.
+- Описать функцию в Terraform: `archive_file` → upload zip → `google_cloudfunctions2_function` с `service_account_email = weather-dev-ingest`.
 - **Проверка:** вызвать функцию вручную, в бакете должен появиться JSON:
 
   ```bash
@@ -158,28 +158,28 @@ docker compose run --rm --no-deps -v "$(cd .. && pwd):/project:ro" -w /project \
 
 ### Шаг 4. Scheduler
 
-- `google_cloud_scheduler_job` со `schedule = "*/10 * * * *"`, `http_target` на URL функции и `oidc_token` от `sa-scheduler-invoker`.
+- `google_cloud_scheduler_job` со `schedule = "*/10 * * * *"`, `http_target` на URL функции и `oidc_token` от `weather-dev-scheduler`.
 - **Проверка:** через 20–30 минут в bronze лежит несколько файлов. Дальше функция работает сама, а данные копятся, пока вы пишете DAG.
 
 ### Шаг 5. Локальный Airflow
 
 - Скачать официальный `docker-compose.yaml` Airflow и выполнить `docker compose up`.
-- Дать контейнерам доступ к GCP. Рекомендуемый вариант: смонтировать `~/.config/gcloud` в контейнер, а в connection `google_cloud_default` указать `impersonation_chain = sa-airflow@...`. Для этого вашему пользователю нужна роль `roles/iam.serviceAccountTokenCreator` на `sa-airflow` — её тоже выдаёт Terraform.
-- Вариант проще, но хуже: JSON-ключ `sa-airflow`, который лежит в `.gitignore`.
+- Дать контейнерам доступ к GCP. Рекомендуемый вариант: смонтировать `~/.config/gcloud` в контейнер, а в connection `google_cloud_default` указать `impersonation_chain = weather-dev-airflow@...`. Для этого вашему пользователю нужна роль `roles/iam.serviceAccountTokenCreator` на `weather-dev-airflow` — её тоже выдаёт Terraform.
+- Вариант проще, но хуже: JSON-ключ `weather-dev-airflow`, который лежит в `.gitignore`.
 - **Проверка:** тестовый DAG выводит список файлов в bronze.
 
 ### Шаг 6. DAG
 
 Задачи DAG:
 
-1. **`resolve_prefix`** — взять `params.source_path` или вычислить префикс прошлого часа.
-2. **`list_files`** — если `.json` нет, задача падает.
-3. **`transform`** — скачать файлы, распарсить и проверить:
+1. **`resolve_source`** — взять `params.source_path` или вычислить префикс прошлого часа.
+2. **`list_bronze_files`** — если `.json` нет, задача падает.
+3. **`transform_to_silver`** — скачать файлы, распарсить и проверить:
    - структуру: `data`, `location`, `data.values` — это dict;
    - числовые поля и диапазоны.
 
-   Невалидные записи логировать как warning, затем сделать dedup по `(location_name, time)`. Если валидных строк не осталось, задача падает. Результат записать в CSV с колонками строго как в схеме BigQuery.
-4. **`GCSToBigQueryOperator`** — `source_format="CSV"`, `skip_leading_rows=1`, `write_disposition="WRITE_APPEND"`.
+   Невалидные записи логировать как warning, затем сделать dedup по `(location_name, event_time)`. Если валидных строк не осталось, задача падает. Результат записать в CSV с колонками строго как в схеме BigQuery.
+4. **`load_to_gold`** (`GCSToBigQueryOperator`) — `source_format="CSV"`, `skip_leading_rows=1`, `write_disposition="WRITE_APPEND"`.
 
 - **Проверка:** запрос возвращает строки:
 
@@ -200,8 +200,11 @@ docker compose run --rm --no-deps -v "$(cd .. && pwd):/project:ro" -w /project \
 
 ## Service accounts
 
+Имена строятся как `<name_prefix>-<env>-<роль>`. Ниже приведены значения по умолчанию (`weather`, `dev`).
+
 | SA | Что ему можно |
 |---|---|
-| `sa-weather-ingest` (функция) | создавать объекты в бакете + читать **только** секрет с API-ключом |
-| `sa-scheduler-invoker` | только вызывать эту функцию (`run.invoker`) |
-| `sa-airflow` | читать и писать объекты в бакете, `bigquery.dataEditor` на dataset, `bigquery.jobUser` на проект |
+| `weather-dev-ingest` (функция) | создавать объекты **только** под `bronze/` + читать **только** секрет с API-ключом |
+| `weather-dev-scheduler` | только вызывать эту функцию (`run.invoker`) |
+| `weather-dev-airflow` | читать объекты бакета, создавать **только** под `silver/`, `bigquery.dataEditor` на gold-таблицу, `bigquery.jobUser` на проект |
+| `weather-dev-fn-build` | собирать образ функции в Cloud Build (`logging.logWriter`, `artifactregistry.writer`, `storage.objectViewer`) |
