@@ -1,210 +1,121 @@
 # Weather Data Pipeline (GCP)
 
-Пайплайн загрузки и обработки погодных данных: **bronze → silver → gold**.
+A pipeline that ingests and processes weather data: **bronze → silver → gold**.
 
-## Общая картина
+## Overview
 
 ```text
- ┌──────────────────────────── GCP (создаётся Terraform) ─────────────────────────────┐
+ ┌──────────────────────────── GCP (provisioned by Terraform) ────────────────────────┐
  │                                                                                    │
- │  Cloud Scheduler ──(каждые 10 мин, HTTP + OIDC)──► Cloud Function Gen2             │
- │                                                     │  1. берёт API-ключ из        │
+ │  Cloud Scheduler ──(every 10 min, HTTP + OIDC)──► Cloud Function Gen2              │
+ │                                                     │  1. reads the API key from   │
  │                                                     │     Secret Manager           │
  │                                                     │  2. GET tomorrow.io/realtime │
- │                                                     ▼  3. кладёт JSON как есть     │
+ │                                                     ▼  3. stores the JSON as is    │
  │                         GCS: bronze/weather/realtime/<loc>/YYYY/MM/DD/HH/<ts>.json │
  │                                                     ▲                              │
  └─────────────────────────────────────────────────────┼──────────────────────────────┘
-                                                       │ читает
- ┌──────────── Ваш ноутбук (Docker) ───────────────────┼─────────────┐
+                                                       │ reads
+ ┌──────────── Your laptop (Docker) ───────────────────┼─────────────┐
  │  Airflow DAG "weather_silver_processing"            │             │
- │   1. list .json за прошлый час  ────────────────────┘             │
- │   2. flatten + validate + dedup                                   │
- │   3. пишет CSV ───────────► GCS: silver/.../HH/<run_ts>.csv       │
+ │   1. list .json files for the previous hour ────────┘             │
+ │   2. validate + flatten + dedup                                   │
+ │   3. write CSV ───────────► GCS: silver/.../HH/<run_ts>.csv       │
  │   4. GCSToBigQueryOperator ─► BigQuery: gold table (append)       │
  └───────────────────────────────────────────────────────────────────┘
 ```
 
-- **Процесс A (ingestion)** полностью живёт в облаке. Scheduler раз в 10 минут дёргает функцию, функция пишет файл в bronze. После `terraform apply` он работает сам, ваш компьютер для этого не нужен.
-- **Процесс B (processing)** — Airflow на вашем компьютере в Docker. Вы запускаете DAG вручную. Он идёт в GCS как обычный клиент, используя credentials service account'а `weather-dev-airflow`.
+- **Process A (ingestion)** runs entirely in the cloud. Cloud Scheduler triggers the function every 10 minutes, and the function writes a file to bronze. Once `terraform apply` has run, it works on its own; your computer is not needed.
+- **Process B (processing)** is Airflow running on your computer in Docker. You trigger the DAG manually (it has no schedule). It talks to GCS as a regular client: your own ADC (`gcloud auth application-default login`) is mounted read-only and used only to impersonate the `weather-dev-airflow` service account, so every GCP call is made as that account.
 
-Terraform создаёт всё, что в облаке: бакет(ы), функцию, Scheduler, секрет, BigQuery-таблицу, service accounts и права. Airflow Terraform не трогает.
+By default the DAG processes the previous UTC hour of all locations and writes one silver CSV per location-hour. The optional `source_path` parameter (`gs://bucket/prefix` or a prefix in the data bucket) overrides this.
 
-## Как DAG понимает, что такое «прошлый час»
+Terraform provisions everything in the cloud: the buckets, the function, the scheduler job, the secret, the BigQuery table, the service accounts and their permissions. It does not manage Airflow.
 
-Если DAG запущен в 14:23 UTC, «прошлый час» — это 13:00–13:59. Значит, нужен префикс:
-
-```text
-bronze/weather/realtime/<loc>/2026/11/18/13/
-```
-
-Функция за этот час должна была положить туда около 6 файлов (по одному каждые 10 минут). DAG их читает, превращает в строки и записывает **один** CSV:
-
-```text
-silver/weather/realtime/<loc>/2026/11/18/13/<run_ts>.csv
-```
-
-Затем этот же CSV загружается в BigQuery.
-
-Если передать параметр `source_path`, DAG берёт этот префикс вместо вычисленного. Это удобно для тестов.
-
-## Структура репозитория
+## Repository structure
 
 ```text
 inno_cloud/
-├── .gitignore                    # .env, *.tfstate*, .terraform/, *.tfvars, ключи, логи
-├── .env                          # локальные переменные (НЕ в git)
-├── pyproject.toml                # настройки pytest (pythonpath: function/, airflow/)
-├── requirements-dev.txt          # зависимости для локальных тестов
+├── .gitignore                    # .env, *.tfstate*, .terraform/, *.tfvars, keys, logs
+├── .env                          # local variables (NOT in git)
+├── pyproject.toml                # pytest settings (pythonpath: function/, airflow/)
+├── requirements-dev.txt          # dependencies for local tests
 │
-├── terraform/                    # вся облачная инфраструктура
-│   ├── versions.tf               # версии Terraform и провайдеров (google, archive)
-│   ├── providers.tf              # провайдер google + default_labels
-│   ├── variables.tf              # входные переменные с validation
-│   ├── locals.tf                 # имена ресурсов, метки, префиксы bronze/silver, список API
-│   ├── terraform.tfvars          # ваши значения (НЕ в git)
-│   ├── terraform.tfvars.example  # шаблон значений
-│   ├── main.tf                   # основной поток: Cloud Scheduler (*/10) → Cloud Function Gen2
-│   ├── function_source.tf        # zip исходников function/ → объект в бакете исходников
-│   ├── apis.tf                   # включение GCP API
-│   ├── storage.tf                # data-бакет (bronze/, silver/) + бакет исходников функции
-│   ├── secrets.tf                # секрет tomorrow-io-api-key (без значения)
-│   ├── iam.tf                    # service accounts и least-privilege биндинги (вкл. run.invoker)
-│   ├── bigquery.tf               # dataset + gold-таблица (схема из задания)
-│   └── outputs.tf                # URL функции, бакеты, таблица, email'ы SA
+├── terraform/                    # all cloud infrastructure
+│   ├── versions.tf               # Terraform and provider versions (google, archive)
+│   ├── .terraform.lock.hcl       # provider lock file
+│   ├── providers.tf              # google provider + default_labels
+│   ├── variables.tf              # input variables with validation
+│   ├── locals.tf                 # resource names, labels, bronze/silver prefixes, API list
+│   ├── terraform.tfvars          # your values (NOT in git)
+│   ├── terraform.tfvars.example  # values template
+│   ├── main.tf                   # main flow: Cloud Scheduler (*/10) → Cloud Function Gen2
+│   ├── function_source.tf        # zip of function/ sources → object in the source bucket
+│   ├── apis.tf                   # enables GCP APIs
+│   ├── storage.tf                # data bucket (bronze/, silver/) + function source bucket
+│   ├── secrets.tf                # tomorrow.io API key secret, tomorrow-io-api-key by default (no value)
+│   ├── iam.tf                    # service accounts and least-privilege bindings (incl. run.invoker)
+│   ├── bigquery.tf               # dataset + gold table (schema from the assignment)
+│   └── outputs.tf                # function URL, buckets, table, SA emails
 │
 ├── function/                     # Cloud Function: tomorrow.io → bronze
 │   ├── main.py                   # HTTP entry point ingest()
 │   ├── requirements.txt
 │   └── weather_ingest/
-│       ├── config.py             # IngestConfig: чтение и проверка env
-│       ├── errors.py             # доменные исключения
+│       ├── config.py             # IngestConfig: reads and validates env
+│       ├── errors.py             # domain exceptions
 │       ├── sources.py            # WeatherSource + TomorrowIoClient
-│       ├── storage.py            # RawStorage + GcsRawStorage (без перезаписи)
+│       ├── storage.py            # RawStorage + GcsRawStorage (no overwrites)
 │       ├── paths.py              # BronzePathBuilder: <loc>/YYYY/MM/DD/HH/<ts>.json
-│       ├── report.py             # IngestionReport: итог запуска, HTTP-статус
+│       ├── report.py             # IngestionReport: run summary, HTTP status
 │       ├── service.py            # WeatherIngestionService: fetch → path → store
-│       └── factory.py            # build_service(): выбор конкретных реализаций
+│       └── factory.py            # build_service(): wires the concrete implementations
 │
-├── airflow/                      # локальный Airflow (Docker)
-│   ├── docker-compose.yaml       # официальный compose + доступ к GCP через impersonation
-│   ├── .env                      # секреты Airflow и настройки пайплайна (НЕ в git)
-│   ├── .env.example              # шаблон .env
-│   ├── config/airflow.cfg        # создаётся airflow-init
+├── airflow/                      # local Airflow (Docker)
+│   ├── docker-compose.yaml       # official compose + GCP access via impersonation
+│   ├── .env                      # Airflow secrets and pipeline settings (NOT in git)
+│   ├── .env.example              # .env template
+│   ├── config/airflow.cfg        # Airflow config (airflow-init creates it if missing)
 │   ├── dags/
 │   │   ├── weather_silver_processing.py  # bronze → silver CSV → gold BigQuery
-│   │   └── gcp_connection_check.py       # smoke-тест доступа к GCP
-│   └── include/                  # логика без зависимостей от Airflow/GCP
+│   │   └── gcp_connection_check.py       # GCP access smoke test
+│   └── include/                  # logic with no Airflow/GCP dependencies
 │       ├── transform.py          # SilverTransformer: parse → validate → flatten → dedup → partition
 │       └── weather/
-│           ├── schema.py         # колонки CSV = схема BigQuery, SilverRecord
-│           ├── validator.py      # правила валидации
-│           ├── flattener.py      # вложенный JSON → плоская запись
-│           ├── deduplicator.py   # дедупликация по (location_name, event_time)
-│           ├── partitioning.py   # пути bronze/silver, «прошлый час», source_path
-│           └── csv_writer.py     # записи → CSV
+│           ├── schema.py         # CSV columns = BigQuery schema, SilverRecord
+│           ├── validator.py      # validation rules
+│           ├── flattener.py      # nested JSON → flat record
+│           ├── deduplicator.py   # deduplication by (location_name, event_time)
+│           ├── partitioning.py   # bronze/silver paths, "previous hour", source_path
+│           └── csv_writer.py     # records → CSV
 │
 └── tests/
-    ├── cloud_function/           # тесты function/ (фейковые HTTP и GCS)
-    └── airflow_pipeline/         # тесты include/ и DAG (test_dags.py — в контейнере Airflow)
+    ├── cloud_function/           # tests for function/ (fake HTTP and GCS)
+    └── airflow_pipeline/         # tests for include/ and the DAGs (test_dags.py runs in the Airflow container)
 ```
 
 > [!NOTE]
-> Пути в задании начинаются с `bronze/...` и `silver/...`, поэтому используется **один data-бакет** с этими префиксами. Права разделены через IAM Conditions по префиксу: функция может создавать объекты только в `bronze/`, Airflow — только в `silver/`.
+> The paths in the assignment start with `bronze/...` and `silver/...`, so a **single data bucket** with these prefixes is used. Permissions are separated with prefix-based IAM Conditions: the function can create objects only under `bronze/`, and Airflow only under `silver/`.
 
-### Тесты
+## Tests
 
 ```bash
-# локально: всё, кроме test_dags.py
+# locally: everything except test_dags.py (skipped when Airflow is not installed)
 .venv/bin/python -m pytest
 
-# тесты Airflow (включая DAG) в одноразовом контейнере
+# Airflow tests (including the DAGs) in a throwaway container
 cd airflow
 docker compose run --rm --no-deps -v "$(cd .. && pwd):/project:ro" -w /project \
   --entrypoint bash airflow-cli -c 'pip install -q pytest==8.3.4 && python -m pytest tests/airflow_pipeline'
 ```
 
-## Порядок работы
-
-Каждый шаг можно проверить отдельно.
-
-### Шаг 1. Подготовка
-
-- Выполнить `gcloud auth login` и `gcloud auth application-default login`.
-- Получить API-ключ на [tomorrow.io](https://www.tomorrow.io/).
-- Создать `.gitignore`. Сейчас `terraform.tfstate` лежит в папке, и он не должен попасть в git.
-
-### Шаг 2. Terraform: базовая инфраструктура
-
-- Описать APIs, бакет, BigQuery dataset и таблицу, секрет (только «контейнер», без значения), service accounts.
-- Выполнить `terraform apply`.
-- Положить значение ключа руками, чтобы оно не попало в код и state:
-
-  ```bash
-  echo -n "KEY" | gcloud secrets versions add tomorrow-io-api-key --data-file=-
-  ```
-
-- **Проверка:** в консоли видны бакет, пустая таблица и секрет.
-
-### Шаг 3. Функция
-
-- Написать `function/main.py`: прочитать ключ из env (Terraform пробросит его из секрета) → `GET https://api.tomorrow.io/v4/weather/realtime?location=<loc>&apikey=...` → `blob.upload_from_string(response.text)` в нужный путь.
-- Описать функцию в Terraform: `archive_file` → upload zip → `google_cloudfunctions2_function` с `service_account_email = weather-dev-ingest`.
-- **Проверка:** вызвать функцию вручную, в бакете должен появиться JSON:
-
-  ```bash
-  curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" <function_url>
-  ```
-
-### Шаг 4. Scheduler
-
-- `google_cloud_scheduler_job` со `schedule = "*/10 * * * *"`, `http_target` на URL функции и `oidc_token` от `weather-dev-scheduler`.
-- **Проверка:** через 20–30 минут в bronze лежит несколько файлов. Дальше функция работает сама, а данные копятся, пока вы пишете DAG.
-
-### Шаг 5. Локальный Airflow
-
-- Скачать официальный `docker-compose.yaml` Airflow и выполнить `docker compose up`.
-- Дать контейнерам доступ к GCP. Рекомендуемый вариант: смонтировать `~/.config/gcloud` в контейнер, а в connection `google_cloud_default` указать `impersonation_chain = weather-dev-airflow@...`. Для этого вашему пользователю нужна роль `roles/iam.serviceAccountTokenCreator` на `weather-dev-airflow` — её тоже выдаёт Terraform.
-- Вариант проще, но хуже: JSON-ключ `weather-dev-airflow`, который лежит в `.gitignore`.
-- **Проверка:** тестовый DAG выводит список файлов в bronze.
-
-### Шаг 6. DAG
-
-Задачи DAG:
-
-1. **`resolve_source`** — взять `params.source_path` или вычислить префикс прошлого часа.
-2. **`list_bronze_files`** — если `.json` нет, задача падает.
-3. **`transform_to_silver`** — скачать файлы, распарсить и проверить:
-   - структуру: `data`, `location`, `data.values` — это dict;
-   - числовые поля и диапазоны.
-
-   Невалидные записи логировать как warning, затем сделать dedup по `(location_name, event_time)`. Если валидных строк не осталось, задача падает. Результат записать в CSV с колонками строго как в схеме BigQuery.
-4. **`load_to_gold`** (`GCSToBigQueryOperator`) — `source_format="CSV"`, `skip_leading_rows=1`, `write_disposition="WRITE_APPEND"`.
-
-- **Проверка:** запрос возвращает строки:
-
-  ```sql
-  SELECT * FROM gold ORDER BY event_time DESC
-  ```
-
-### Шаг 7. Evidence
-
-Собрать скриншоты:
-
-- успешный `terraform apply`;
-- файлы в bronze;
-- логи функции;
-- успешный DAG run в Airflow UI;
-- CSV в silver;
-- результат запроса в BigQuery.
-
 ## Service accounts
 
-Имена строятся как `<name_prefix>-<env>-<роль>`. Ниже приведены значения по умолчанию (`weather`, `dev`).
+Names follow the pattern `<name_prefix>-<env>-<role>`. The table shows the default values (`weather`, `dev`).
 
-| SA | Что ему можно |
+| SA | Permissions |
 |---|---|
-| `weather-dev-ingest` (функция) | создавать объекты **только** под `bronze/` + читать **только** секрет с API-ключом |
-| `weather-dev-scheduler` | только вызывать эту функцию (`run.invoker`) |
-| `weather-dev-airflow` | читать объекты бакета, создавать **только** под `silver/`, `bigquery.dataEditor` на gold-таблицу, `bigquery.jobUser` на проект |
-| `weather-dev-fn-build` | собирать образ функции в Cloud Build (`logging.logWriter`, `artifactregistry.writer`, `storage.objectViewer`) |
+| `weather-dev-ingest` (function) | create objects **only** under `bronze/` + read **only** the API key secret |
+| `weather-dev-scheduler` | only invoke this function (`run.invoker`) |
+| `weather-dev-airflow` | read bucket objects, create objects **only** under `silver/`, `bigquery.dataEditor` on the gold table, `bigquery.jobUser` on the project; users listed in `airflow_impersonators` get `iam.serviceAccountTokenCreator` on it |
+| `weather-dev-fn-build` | build the function image in Cloud Build (`logging.logWriter`, `artifactregistry.writer`, `storage.objectViewer`) |
