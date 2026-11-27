@@ -33,6 +33,7 @@ venv/
 # Airflow local
 airflow/logs/
 airflow/plugins/__pycache__/
+airflow/config/airflow.cfg
 
 # OS / IDE
 .DS_Store
