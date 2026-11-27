@@ -1,6 +1,4 @@
-##############################################################################
 # Service accounts — one per service
-##############################################################################
 
 resource "google_service_account" "ingest" {
   account_id   = "${local.name}-ingest"
@@ -20,9 +18,30 @@ resource "google_service_account" "airflow" {
   depends_on   = [google_project_service.apis]
 }
 
-##############################################################################
+# Dedicated Cloud Build identity for building the function image, instead of
+# the default Compute Engine SA (which often has broad Editor rights).
+resource "google_service_account" "function_build" {
+  account_id   = "${local.name}-fn-build"
+  display_name = "Cloud Build for weather ingest function (${var.env})"
+  depends_on   = [google_project_service.apis]
+}
+
+# Minimal set documented for a custom Cloud Functions build SA.
+# Project level is required: build logs, the gcf-artifacts repo and the
+# gcf-v2-sources staging bucket are created by Google, not by Terraform.
+resource "google_project_iam_member" "function_build_roles" {
+  for_each = toset([
+    "roles/logging.logWriter",
+    "roles/artifactregistry.writer",
+    "roles/storage.objectViewer",
+  ])
+
+  project = var.project_id
+  role    = each.value
+  member  = google_service_account.function_build.member
+}
+
 # Ingest function: write ONLY under bronze/, read ONLY the API key secret
-##############################################################################
 
 resource "google_storage_bucket_iam_member" "ingest_bronze_writer" {
   bucket = google_storage_bucket.data.name
@@ -42,12 +61,19 @@ resource "google_secret_manager_secret_iam_member" "ingest_secret_accessor" {
   member    = google_service_account.ingest.member
 }
 
-# Scheduler SA gets run.invoker on the function itself in step 3 (scheduler.tf),
-# because that binding needs the function resource to exist.
+# Scheduler: may invoke ONLY the ingest function
 
-##############################################################################
+# A Gen2 function is served by a Cloud Run service with the same name;
+# invocation is authorized by run.invoker on that service.
+resource "google_cloud_run_v2_service_iam_member" "scheduler_invoker" {
+  project  = var.project_id
+  location = google_cloudfunctions2_function.ingest.location
+  name     = google_cloudfunctions2_function.ingest.name
+  role     = "roles/run.invoker"
+  member   = google_service_account.scheduler.member
+}
+
 # Airflow: read bronze, write silver, append into the gold table
-##############################################################################
 
 # objects.list is evaluated on the bucket, so prefix conditions can't be used here.
 resource "google_storage_bucket_iam_member" "airflow_reader" {

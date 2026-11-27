@@ -1,0 +1,3 @@
+# Local test dependencies: pip install -r requirements-dev.txt
+-r function/requirements.txt
+pytest==8.3.4

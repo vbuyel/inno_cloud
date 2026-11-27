@@ -101,6 +101,73 @@ variable "bronze_retention_days" {
   }
 }
 
+variable "weather_locations" {
+  description = "tomorrow.io locations to ingest: city names ('minsk') or 'lat,lon'. Each one costs 6 API calls/hour."
+  type        = list(string)
+  default     = ["minsk"]
+
+  validation {
+    # tomorrow.io free tier: 25 req/hour, 500 req/day. 3 locations x 6/hour x 24h = 432/day.
+    condition     = length(var.weather_locations) >= 1 && length(var.weather_locations) <= 3
+    error_message = "weather_locations must contain 1-3 items (tomorrow.io free tier limit: 500 requests/day)."
+  }
+
+  validation {
+    condition     = alltrue([for l in var.weather_locations : length(trimspace(l)) > 0 && !strcontains(l, ";")])
+    error_message = "Locations must be non-empty and must not contain ';'."
+  }
+}
+
+variable "weather_units" {
+  description = "Units requested from tomorrow.io."
+  type        = string
+  default     = "metric"
+
+  validation {
+    condition     = contains(["metric", "imperial"], var.weather_units)
+    error_message = "weather_units must be 'metric' or 'imperial'."
+  }
+}
+
+variable "function_runtime" {
+  description = "Cloud Functions runtime."
+  type        = string
+  default     = "python312"
+
+  validation {
+    condition     = can(regex("^python3[0-9]{2}$", var.function_runtime))
+    error_message = "function_runtime must be a Python runtime, e.g. python312."
+  }
+}
+
+variable "function_max_instances" {
+  description = "Upper bound on function instances (protects API quota and cost)."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.function_max_instances >= 1 && var.function_max_instances <= 10
+    error_message = "function_max_instances must be between 1 and 10."
+  }
+}
+
+variable "scheduler_cron" {
+  description = "Cron schedule (UTC) for triggering the ingest function."
+  type        = string
+  default     = "*/10 * * * *"
+
+  validation {
+    condition     = length(split(" ", trimspace(var.scheduler_cron))) == 5
+    error_message = "scheduler_cron must be a 5-field cron expression, e.g. \"*/10 * * * *\"."
+  }
+}
+
+variable "scheduler_paused" {
+  description = "Pause the scheduler job without deleting it (e.g. to save API quota)."
+  type        = bool
+  default     = false
+}
+
 variable "airflow_impersonators" {
   description = "Principals allowed to impersonate the Airflow SA from a local machine, e.g. [\"user:me@example.com\"]."
   type        = list(string)

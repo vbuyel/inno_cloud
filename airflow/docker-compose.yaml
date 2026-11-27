@@ -44,10 +44,10 @@
 ---
 x-airflow-common:
   &airflow-common
-  # In order to add custom dependencies or upgrade provider distributions you can use your extended image.
-  # Comment the image line, place your Dockerfile in the directory where you placed the docker-compose.yaml
-  # and uncomment the "build" line below, Then run `docker-compose build` to build the images.
-  build: .
+  # The official image already ships apache-airflow-providers-google, so no custom build is needed.
+  # To add dependencies later: create a Dockerfile, comment the image line and uncomment "build".
+  image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:3.3.2}
+  # build: .
   env_file:
     - ${ENV_FILE_PATH:-.env}
   environment:
@@ -63,6 +63,7 @@ x-airflow-common:
     AIRFLOW__CORE__EXECUTION_API_SERVER_URL: 'http://airflow-apiserver:8080/execution/'
     AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET:-airflow_jwt_secret}
     AIRFLOW__API_AUTH__JWT_ISSUER: ${AIRFLOW__API_AUTH__JWT_ISSUER:-airflow}
+    AIRFLOW__CORE__DEFAULT_TIMEZONE: Europe/Minsk
     # yamllint disable rule:line-length
     # Use simple http server on scheduler for health checks
     # See https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/logging-monitoring/check-health.html#scheduler-health-check-server
@@ -74,13 +75,28 @@ x-airflow-common:
     # The following line can be used to set a custom config file, stored in the local config folder
     AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
     AIRFLOW_CONN_FS_DEFAULT: '{"conn_type": "fs"}'
-    AIRFLOW_CONN_MONGO_DEFAULT: '{"conn_type": "mongo", "host": "mongo", "port": 27017}'
+    # ---- GCP access (keyless) -------------------------------------------------
+    # Your own user ADC (gcloud auth application-default login) is mounted read-only
+    # and used ONLY to impersonate the least-privileged Airflow service account.
+    # Every Google operator/hook therefore acts as GCP_IMPERSONATE_SA, never as you.
+    GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/gcp/application_default_credentials.json
+    GOOGLE_CLOUD_PROJECT: ${GCP_PROJECT_ID:?set GCP_PROJECT_ID in airflow/.env}
+    AIRFLOW_CONN_GOOGLE_CLOUD_DEFAULT: '{"conn_type": "google_cloud_platform", "extra": {"project": "${GCP_PROJECT_ID}", "impersonation_chain": "${GCP_IMPERSONATE_SA:?set GCP_IMPERSONATE_SA in airflow/.env}"}}'
+    # Pipeline settings exposed to DAGs as Airflow Variables (Variable.get("weather_data_bucket"), ...)
+    AIRFLOW_VAR_WEATHER_DATA_BUCKET: ${WEATHER_DATA_BUCKET:?set WEATHER_DATA_BUCKET in airflow/.env}
+    AIRFLOW_VAR_WEATHER_BRONZE_PREFIX: ${WEATHER_BRONZE_PREFIX:-bronze/weather/realtime}
+    AIRFLOW_VAR_WEATHER_SILVER_PREFIX: ${WEATHER_SILVER_PREFIX:-silver/weather/realtime}
+    AIRFLOW_VAR_WEATHER_GOLD_TABLE: ${WEATHER_GOLD_TABLE:?set WEATHER_GOLD_TABLE in airflow/.env}
+    # Makes /opt/airflow/include importable from DAGs: `from include.transform import ...`
+    PYTHONPATH: /opt/airflow
   volumes:
     - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
+    - ${AIRFLOW_PROJ_DIR:-.}/include:/opt/airflow/include
     - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
     - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
     - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
     - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data
+    - ${GCP_ADC_FILE:-~/.config/gcloud/application_default_credentials.json}:/opt/airflow/gcp/application_default_credentials.json:ro
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     &airflow-common-depends-on
@@ -105,19 +121,6 @@ services:
       start_period: 5s
     restart: always
 
-  mongo:
-    image: mongo:7
-    ports:
-      - "127.0.0.1:27017:27017"
-    volumes:
-      - mongo-db-volume:/data/db
-    healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      retries: 5
-      start_period: 5s
-    restart: always
-
   redis:
     # Redis is limited to 7.2-bookworm due to licencing change
     # https://redis.io/blog/redis-adopts-dual-source-available-licensing/
@@ -136,7 +139,7 @@ services:
     <<: *airflow-common
     command: api-server
     ports:
-      - "8080:8080"
+      - "127.0.0.1:${AIRFLOW_WEB_PORT:-8080}:8080"
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/monitor/health"]
       interval: 30s
@@ -348,4 +351,3 @@ services:
 
 volumes:
   postgres-db-volume:
-  mongo-db-volume:

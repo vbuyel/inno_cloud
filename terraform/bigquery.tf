@@ -1,6 +1,6 @@
 resource "google_bigquery_dataset" "gold" {
-  dataset_id = var.bq_dataset_id
-  location = var.bq_location
+  dataset_id  = var.bq_dataset_id
+  location    = var.bq_location
   description = "Gold layer: validated weather observations."
 
   # Do not drop tables together with the dataset.
@@ -10,14 +10,14 @@ resource "google_bigquery_dataset" "gold" {
 }
 
 resource "google_bigquery_table" "weather_realtime" {
-  dataset_id = google_bigquery_dataset.gold.dataset_id
-  table_id = var.bq_table_id
+  dataset_id  = google_bigquery_dataset.gold.dataset_id
+  table_id    = var.bq_table_id
   description = "Realtime weather observations loaded from silver CSV (append mode)."
 
   deletion_protection = true
 
   time_partitioning {
-    type = "DAY"
+    type  = "DAY"
     field = "event_time"
   }
 

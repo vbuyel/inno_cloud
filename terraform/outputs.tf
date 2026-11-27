@@ -31,8 +31,34 @@ output "weather_api_secret" {
 output "service_accounts" {
   description = "Service account emails per service."
   value = {
-    ingest    = google_service_account.ingest.email
-    scheduler = google_service_account.scheduler.email
-    airflow   = google_service_account.airflow.email
+    ingest         = google_service_account.ingest.email
+    scheduler      = google_service_account.scheduler.email
+    airflow        = google_service_account.airflow.email
+    function_build = google_service_account.function_build.email
   }
+}
+
+output "function_name" {
+  description = "Cloud Function Gen2 name."
+  value       = google_cloudfunctions2_function.ingest.name
+}
+
+output "function_url" {
+  description = "HTTPS endpoint of the ingest function (requires an identity token)."
+  value       = google_cloudfunctions2_function.ingest.url
+}
+
+output "scheduler_job" {
+  description = "Cloud Scheduler job that triggers the ingest function."
+  value       = google_cloud_scheduler_job.ingest.name
+}
+
+output "scheduler_cron" {
+  description = "Effective trigger schedule (UTC)."
+  value       = google_cloud_scheduler_job.ingest.schedule
+}
+
+output "function_run_service" {
+  description = "Underlying Cloud Run service name (target for run.invoker bindings)."
+  value       = google_cloudfunctions2_function.ingest.service_config[0].service
 }
